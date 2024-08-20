@@ -10,6 +10,7 @@ readme = "README.md"
 keywords = ["pcap", "replay", "cli", "network", "packet"]
 authors = ["Lemorz56"]
 categories = ["command-line-utilities"]
+exclude = ["target", "Cargo.lock", ".github/*", "**/*.md"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
