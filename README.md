@@ -1,8 +1,8 @@
 # repcap
 
 [![Crates.io](https://img.shields.io/crates/v/repcap.svg)](https://crates.io/crates/repcap)
-[![Docs.rs](https://docs.rs/repcap/badge.svg)](https://docs.rs/repcap)
-[![CI](https://github.com/Lemorz56/repcap/workflows/CI/badge.svg)](https://github.com/Lemorz56/repcap/actions)
+<!-- [![Docs.rs](https://docs.rs/repcap/badge.svg)](https://docs.rs/repcap) -->
+[![CI](https://github.com/Lemorz56/repcap-rs/workflows/CI/badge.svg)](https://github.com/Lemorz56/repcap-rs/actions)
 
 ## Installation
 
