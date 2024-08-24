@@ -1,8 +1,8 @@
-use std::path::Path;
 use clap::{Parser, Subcommand};
 use pcap::Device;
-use tabled::{Table, Tabled};
+use std::path::Path;
 use tabled::settings::Style;
+use tabled::{Table, Tabled};
 
 use crate::replay::PcapHandler;
 
@@ -40,9 +40,8 @@ enum SubCommand {
         #[arg(short, long, default_value = "false")]
         /// Show network interface name, description and address
         full_info: bool,
-    }
-    // /// Unsupported command
-    // Gui,
+    }, // /// Unsupported command
+       // Gui,
 }
 
 #[derive(Tabled)]
@@ -65,39 +64,45 @@ fn main() {
     match args.cmd {
         SubCommand::About => {
             println!("About");
-        },
+        }
         SubCommand::Version => {
             println!("Version");
-        },
-        SubCommand::Replay { interface, fast, pcap } => {
+        }
+        SubCommand::Replay {
+            interface,
+            fast,
+            pcap,
+        } => {
             //todo: debug logs
 
             // should call the replay function
-            println!("Replay: interface={}, fast={}, pcap={}", interface, fast, pcap);
+            println!(
+                "Replay: interface={}, fast={}, pcap={}",
+                interface, fast, pcap
+            );
 
             if interface.is_empty() {
                 println!("You need to provide an interface name!");
-                return
+                return;
             }
             if pcap.is_empty() {
                 println!("You need to provide a pcap file!");
-                return
+                return;
             }
 
             let pcap_path = Path::new(&pcap);
             if !pcap_path.exists() || !pcap_path.is_file() {
                 println!("The given path is not a file or does not exist!");
-                return
+                return;
             }
 
             let mut pcap_handler = PcapHandler::new();
             pcap_handler.replay(pcap_path, &interface, fast);
         }
-        SubCommand::List {full_info} => {
+        SubCommand::List { full_info } => {
             print_interfaces(full_info);
-        },
+        }
     }
-
 }
 
 fn print_interfaces(full_info: bool) {

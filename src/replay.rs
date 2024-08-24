@@ -1,9 +1,9 @@
-﻿use std::path::Path;
-use pcap::{Active, Capture, Device, Packet};
-use std::time::{Duration, Instant};
-use std::thread::sleep;
 use libc::timeval;
 use log::error;
+use pcap::{Active, Capture, Device, Packet};
+use std::path::Path;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 pub struct PcapHandler {
     last_time_sent: Option<Instant>,
@@ -44,7 +44,6 @@ impl PcapHandler {
             }
         } else {
             loop {
-
                 let packet = match capture.next_packet() {
                     Ok(packet) => packet,
                     Err(pcap::Error::NoMorePackets) => break,
@@ -74,10 +73,7 @@ impl PcapHandler {
             .find(|d| d.name == net_intf)
             .unwrap_or_else(|| panic!("Error finding device called {}", net_intf));
 
-        let cap = Capture::from_device(device)
-            .unwrap()
-            .promisc(true)
-            .open();
+        let cap = Capture::from_device(device).unwrap().promisc(true).open();
 
         match cap {
             Ok(c) => c,
@@ -105,7 +101,8 @@ impl PcapHandler {
 
     fn write_packet_delayed(&mut self, handle: &mut Capture<Active>, packet: &Packet) {
         if let Some(last_ts) = self.last_ts {
-            let interval_in_capture = Self::timeval_to_duration(packet.header.ts) - Self::timeval_to_duration(last_ts);
+            let interval_in_capture =
+                Self::timeval_to_duration(packet.header.ts) - Self::timeval_to_duration(last_ts);
             if let Some(last_time_sent) = self.last_time_sent {
                 let elapsed_time = last_time_sent.elapsed();
                 if interval_in_capture > elapsed_time {
@@ -127,5 +124,101 @@ impl PcapHandler {
 
     fn timeval_to_duration(tv: timeval) -> Duration {
         Duration::new(tv.tv_sec as u64, (tv.tv_usec * 1000) as u32)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_replay_fast() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.pcap");
+        let mut file = File::create(&file_path).unwrap();
+        
+        let pcap_header = [
+            0xd4, 0xc3, 0xb2, 0xa1, // Magic number
+            0x02, 0x00, // Major version number
+            0x04, 0x00, // Minor version number
+            0x00, 0x00, 0x00, 0x00, // GMT to local correction
+            0x00, 0x00, 0x00, 0x00, // Accuracy of timestamps
+            0xff, 0xff, 0x00, 0x00, // Max length of captured packets, in octets
+            0x01, 0x00, 0x00, 0x00, // Data link type
+        ];
+        let packet_header = [
+            0x00, 0x00, 0x00, 0x00, // Timestamp seconds
+            0x00, 0x00, 0x00, 0x00, // Timestamp microseconds
+            0x04, 0x00, 0x00, 0x00, // Number of octets of packet saved in file
+            0x04, 0x00, 0x00, 0x00, // Actual length of packet
+        ];
+        let packet_data = [0xde, 0xad, 0xbe, 0xef]; // Mock packet data
+
+        file.write_all(&pcap_header).unwrap();
+        file.write_all(&packet_header).unwrap();
+        file.write_all(&packet_data).unwrap();
+
+        let devices = Device::list().expect("Error finding devices");
+        for device in &devices {
+            println!("Found device: {}", device.name);
+        }
+
+        let device_name = devices
+            .first()
+            .expect("No network devices found")
+            .name
+            .clone();
+
+        let mut handler = PcapHandler::new();
+        handler.replay(&file_path, &device_name, true);
+
+        assert_eq!(handler.pkt, 1); // Assuming one packet was written
+    }
+
+    #[test]
+    fn test_replay_delayed() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.pcap");
+        let mut file = File::create(&file_path).unwrap();
+        
+        let pcap_header = [
+            0xd4, 0xc3, 0xb2, 0xa1, // Magic number
+            0x02, 0x00, // Major version number
+            0x04, 0x00, // Minor version number
+            0x00, 0x00, 0x00, 0x00, // GMT to local correction
+            0x00, 0x00, 0x00, 0x00, // Accuracy of timestamps
+            0xff, 0xff, 0x00, 0x00, // Max length of captured packets, in octets
+            0x01, 0x00, 0x00, 0x00, // Data link type
+        ];
+        let packet_header = [
+            0x00, 0x00, 0x00, 0x00, // Timestamp seconds
+            0x00, 0x00, 0x00, 0x00, // Timestamp microseconds
+            0x04, 0x00, 0x00, 0x00, // Number of octets of packet saved in file
+            0x04, 0x00, 0x00, 0x00, // Actual length of packet
+        ];
+        let packet_data = [0xde, 0xad, 0xbe, 0xef]; // Mock packet data
+
+        file.write_all(&pcap_header).unwrap();
+        file.write_all(&packet_header).unwrap();
+        file.write_all(&packet_data).unwrap();
+
+        let devices = Device::list().expect("Error finding devices");
+        for device in &devices {
+            println!("Found device: {}", device.name);
+        }
+
+        let device = devices
+            .first()
+            .expect("No network devices found")
+            .name
+            .clone();
+        
+        let mut handler = PcapHandler::new();
+        handler.replay(&file_path, &device, false);
+
+        assert_eq!(handler.pkt, 1); // Assuming one packet was written
     }
 }
