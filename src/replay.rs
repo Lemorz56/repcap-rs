@@ -4,7 +4,7 @@ use pcap::{Active, Capture, Device, Offline, Packet};
 use std::{
     path::Path,
     thread::sleep,
-    time::{Duration, Instant}
+    time::{Duration, Instant},
 };
 pub struct PcapHandler {
     last_time_sent: Option<Instant>,
@@ -30,7 +30,7 @@ impl PcapHandler {
 
         let mut target_capture = Self::open_target(net_intf);
 
-        let process_packet = if fast { 
+        let process_packet = if fast {
             |handler: &mut PcapHandler, target_capture: &mut Capture<Active>, packet: &Packet| {
                 //todo: use handler.write_packet instead of Self::
                 handler.write_packet(target_capture, packet);
@@ -40,7 +40,7 @@ impl PcapHandler {
                 handler.write_packet_delayed(target_capture, packet);
             }
         };
-        
+
         self.process_packets(&mut capture, &mut target_capture, process_packet);
         println!("Replay finished, wrote {} packets", self.pkt);
     }
@@ -77,14 +77,18 @@ impl PcapHandler {
         self.last_ts = Some(packet.header.ts);
     }
 
-    fn write_packet(&mut self ,handle: &mut Capture<Active>, packet: &Packet) {
+    fn write_packet(&mut self, handle: &mut Capture<Active>, packet: &Packet) {
         if let Err(e) = handle.sendpacket(packet.data) {
             error!("Failed to send packet: {}", e);
         }
     }
-    
-    fn process_packets<F>(&mut self, capture: &mut Capture<Offline>, target_capture: &mut Capture<Active>, mut process_packet_func: F)
-    where
+
+    fn process_packets<F>(
+        &mut self,
+        capture: &mut Capture<Offline>,
+        target_capture: &mut Capture<Active>,
+        mut process_packet_func: F,
+    ) where
         F: FnMut(&mut PcapHandler, &mut Capture<Active>, &Packet),
     {
         // TODO: find out max packet count
@@ -127,7 +131,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.pcap");
         let mut file = File::create(&file_path).unwrap();
-        
+
         let pcap_header = [
             0xd4, 0xc3, 0xb2, 0xa1, // Magic number
             0x02, 0x00, // Major version number
@@ -167,7 +171,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.pcap");
         let mut file = File::create(&file_path).unwrap();
-        
+
         let pcap_header = [
             0xd4, 0xc3, 0xb2, 0xa1, // Magic number
             0x02, 0x00, // Major version number
@@ -195,13 +199,13 @@ mod tests {
             .expect("No network devices found")
             .name
             .clone();
-        
+
         let mut handler = PcapHandler::new();
         handler.replay(&file_path, &device, false);
 
         assert_eq!(handler.pkt, 1);
     }
-    
+
     #[test]
     fn test_timeval_to_duration() {
         let timeval = timeval {
@@ -223,10 +227,7 @@ mod tests {
         handler.last_time_sent = Some(Instant::now() - Duration::from_secs(1));
 
         let devices = Device::list().expect("Error finding devices");
-        let device = devices
-            .first()
-            .expect("No network devices found")
-            .clone();
+        let device = devices.first().expect("No network devices found").clone();
 
         let mut capture = Capture::from_device(device).unwrap().open().unwrap();
         let packet = Packet {
