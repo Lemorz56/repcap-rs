@@ -66,7 +66,7 @@ fn main() {
             println!("About");
         }
         SubCommand::Version => {
-            println!("Version");
+            println!("v{}", env!("CARGO_PKG_VERSION"));
         }
         SubCommand::Replay {
             interface,

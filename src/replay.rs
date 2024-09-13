@@ -1,10 +1,11 @@
 use libc::timeval;
 use log::error;
-use pcap::{Active, Capture, Device, Packet};
-use std::path::Path;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
-
+use pcap::{Active, Capture, Device, Offline, Packet};
+use std::{
+    path::Path,
+    thread::sleep,
+    time::{Duration, Instant}
+};
 pub struct PcapHandler {
     last_time_sent: Option<Instant>,
     last_ts: Option<timeval>,
@@ -29,42 +30,20 @@ impl PcapHandler {
 
         let mut target_capture = Self::open_target(net_intf);
 
-        if fast {
-            loop {
-                let packet = match capture.next_packet() {
-                    Ok(packet) => packet,
-                    Err(pcap::Error::NoMorePackets) => break,
-                    Err(e) => {
-                        error!("Failed to read packet {}: {}", self.pkt, e);
-                        break;
-                    }
-                };
-                Self::write_packet(&mut target_capture, &packet);
-                self.pkt += 1;
+        let process_packet = if fast { 
+            |handler: &mut PcapHandler, target_capture: &mut Capture<Active>, packet: &Packet| {
+                //todo: use handler.write_packet instead of Self::
+                handler.write_packet(target_capture, packet);
             }
         } else {
-            loop {
-                let packet = match capture.next_packet() {
-                    Ok(packet) => packet,
-                    Err(pcap::Error::NoMorePackets) => break,
-                    Err(e) => {
-                        error!("Failed to read packet {}: {}", self.pkt, e);
-                        break;
-                    }
-                };
-                self.write_packet_delayed(&mut target_capture, &packet);
-                self.pkt += 1;
+            |handler: &mut PcapHandler, target_capture: &mut Capture<Active>, packet: &Packet| {
+                handler.write_packet_delayed(target_capture, packet);
             }
-        }
+        };
+        
+        self.process_packets(&mut capture, &mut target_capture, process_packet);
         println!("Replay finished, wrote {} packets", self.pkt);
     }
-
-    // fn load_pcap(&mut self, filename: &str) -> Capture<Offline> {
-    //     // self.pcap_handle =
-    //     self.start = Some(Instant::now());
-    //     self.pkt = 0;
-    //     Capture::from_file(filename).expect("Error opening pcap file")
-    // }
 
     fn open_target(net_intf: &str) -> Capture<Active> {
         let device = Device::list()
@@ -73,31 +52,13 @@ impl PcapHandler {
             .find(|d| d.name == net_intf)
             .unwrap_or_else(|| panic!("Error finding device called {}", net_intf));
 
-        let cap = Capture::from_device(device).unwrap().promisc(true).open();
-
-        match cap {
-            Ok(c) => c,
-            Err(e) => {
+        Capture::from_device(device)
+            .and_then(|c| c.open())
+            .unwrap_or_else(|e| {
                 error!("Failed to open device: {}", e);
                 std::process::exit(1);
-            }
-        }
+            })
     }
-
-    // fn next_packet(capture: Capture<Offline>) -> Option<Packet> {
-    //     if let Some(ref mut handle) = capture {
-    //         match handle.next_packet() {
-    //             Ok(packet) => Some(packet),
-    //             Err(pcap::Error::NoMorePackets) => None,
-    //             Err(e) => {
-    //                 error!("Failed to read packet {}: {}", self.pkt, e);
-    //                 None
-    //             }
-    //         }
-    //     } else {
-    //         None
-    //     }
-    // }
 
     fn write_packet_delayed(&mut self, handle: &mut Capture<Active>, packet: &Packet) {
         if let Some(last_ts) = self.last_ts {
@@ -112,16 +73,43 @@ impl PcapHandler {
         }
 
         self.last_time_sent = Some(Instant::now());
-        Self::write_packet(handle, packet);
+        self.write_packet(handle, packet);
         self.last_ts = Some(packet.header.ts);
     }
 
-    fn write_packet(handle: &mut Capture<Active>, packet: &Packet) {
+    fn write_packet(&mut self ,handle: &mut Capture<Active>, packet: &Packet) {
         if let Err(e) = handle.sendpacket(packet.data) {
             error!("Failed to send packet: {}", e);
         }
     }
+    
+    fn process_packets<F>(&mut self, capture: &mut Capture<Offline>, target_capture: &mut Capture<Active>, mut process_packet_func: F)
+    where
+        F: FnMut(&mut PcapHandler, &mut Capture<Active>, &Packet),
+    {
+        // TODO: find out max packet count
+        // let pb = indicatif::ProgressBar::new(capture.total);
 
+        println!("Processing packets...");
+        // let mut stdlock = stdout().lock();
+        loop {
+            let packet = match capture.next_packet() {
+                Ok(packet) => packet,
+                Err(pcap::Error::NoMorePackets) => break,
+                Err(e) => {
+                    error!("Failed to read packet {}: {}", self.pkt, e);
+                    break;
+                }
+            };
+            process_packet_func(self, target_capture, &packet);
+            self.pkt += 1;
+            print!("[+]");
+            // pb.println(format!("[+] finished #{}", self.pkt));
+            // pb.inc(1);
+        }
+        // pb.finish_with_message("Done!");
+        println!()
+    }
     fn timeval_to_duration(tv: timeval) -> Duration {
         Duration::new(tv.tv_sec as u64, (tv.tv_usec * 1000) as u32)
     }
@@ -162,10 +150,6 @@ mod tests {
         file.write_all(&packet_data).unwrap();
 
         let devices = Device::list().expect("Error finding devices");
-        for device in &devices {
-            println!("Found device: {}", device.name);
-        }
-
         let device_name = devices
             .first()
             .expect("No network devices found")
@@ -175,7 +159,7 @@ mod tests {
         let mut handler = PcapHandler::new();
         handler.replay(&file_path, &device_name, true);
 
-        assert_eq!(handler.pkt, 1); // Assuming one packet was written
+        assert_eq!(handler.pkt, 1);
     }
 
     #[test]
@@ -206,10 +190,6 @@ mod tests {
         file.write_all(&packet_data).unwrap();
 
         let devices = Device::list().expect("Error finding devices");
-        for device in &devices {
-            println!("Found device: {}", device.name);
-        }
-
         let device = devices
             .first()
             .expect("No network devices found")
@@ -219,6 +199,51 @@ mod tests {
         let mut handler = PcapHandler::new();
         handler.replay(&file_path, &device, false);
 
-        assert_eq!(handler.pkt, 1); // Assuming one packet was written
+        assert_eq!(handler.pkt, 1);
+    }
+    
+    #[test]
+    fn test_timeval_to_duration() {
+        let timeval = timeval {
+            tv_sec: 1,
+            tv_usec: 500000,
+        };
+        let duration = PcapHandler::timeval_to_duration(timeval);
+        assert_eq!(duration.as_secs(), 1);
+        assert_eq!(duration.subsec_micros(), 500000);
+    }
+
+    #[test]
+    fn test_write_packet_delayed_with_last_time_sent() {
+        let mut handler = PcapHandler::new();
+        handler.last_ts = Some(timeval {
+            tv_sec: 1,
+            tv_usec: 0,
+        });
+        handler.last_time_sent = Some(Instant::now() - Duration::from_secs(1));
+
+        let devices = Device::list().expect("Error finding devices");
+        let device = devices
+            .first()
+            .expect("No network devices found")
+            .clone();
+
+        let mut capture = Capture::from_device(device).unwrap().open().unwrap();
+        let packet = Packet {
+            header: &pcap::PacketHeader {
+                ts: timeval {
+                    tv_sec: 2,
+                    tv_usec: 0,
+                },
+                caplen: 4,
+                len: 4,
+            },
+            data: &[0xde, 0xad, 0xbe, 0xef],
+        };
+
+        handler.write_packet_delayed(&mut capture, &packet);
+
+        assert!(handler.last_time_sent.is_some());
+        assert_eq!(handler.last_ts.unwrap().tv_sec, 2);
     }
 }
